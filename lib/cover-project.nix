@@ -8,8 +8,6 @@ project:
 coverageReports:
 
 let
-  toBashArray = arr: "(" + (lib.concatStringsSep " " arr) + ")";
-
   # Create a list element for a project coverage index page.
   coverageListElement = coverageReport:
       ''
@@ -51,12 +49,16 @@ let
 
   libs = lib.unique (lib.concatMap (r: r.mixLibraries) coverageReports);
 
+  writeArr = name: arr: pkgs.writeText name (lib.concatStringsSep "\n" arr);
+
   mixDirs =
     map
       (l: "${l}/share/hpc/vanilla/mix/${l.identifier.name}-${l.identifier.version}")
       libs;
+  mixDirsFile = writeArr "mixdirs" mixDirs;
 
   srcDirs = map (l: l.srcSubDirPath) libs;
+  srcDirsFile = writeArr "srcdirs" srcDirs;
 
   allCoverageReport = haskellLib.coverageReport {
     name = "all";
@@ -78,25 +80,14 @@ in pkgs.runCommand "project-coverage-report"
   })
   ''
     function markup() {
-      local -n srcDs=$1
-      local -n mixDs=$2
-      local -n includedModules=$3
-      local destDir=$4
-      local tixFile=$5
+      local modulesFile=$1
+      local destDir=$2
+      local tixFile=$3
 
       local hpcMarkupCmd=("hpc" "markup" "--destdir=$destDir")
-      for srcDir in "''${srcDs[@]}"; do
-        hpcMarkupCmd+=("--srcdir=$srcDir")
-      done
-
-      for mixDir in "''${mixDs[@]}"; do
-        hpcMarkupCmd+=("--hpcdir=$mixDir")
-      done
-
-      for module in "''${includedModules[@]}"; do
-        hpcMarkupCmd+=("--include=$module")
-      done
-
+      hpcMarkupCmd+=("--srcdirs-from=${srcDirsFile}")
+      hpcMarkupCmd+=("--hpcdirs-from=${mixDirsFile}")
+      hpcMarkupCmd+=("--includes-from=$modulesFile")
       hpcMarkupCmd+=("$tixFile")
 
       echo "''${hpcMarkupCmd[@]}"
@@ -104,15 +95,15 @@ in pkgs.runCommand "project-coverage-report"
     }
 
     function findModules() {
+      local modulesFile=$1
       local searchDir=$2
-      local pattern=$3
 
       pushd $searchDir
-      mapfile -d $'\0' $1 < <(find ./ -type f \
-        -wholename "$pattern" -not -name "Paths*" \
+      find ./ -type f \
+        -wholename "*.mix" -not -name "Paths*" \
         -exec basename {} \; \
         | sed "s/\.mix$//" \
-        | tr "\n" "\0")
+        >> "$modulesFile"
       popd
     }
 
