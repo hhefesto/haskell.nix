@@ -51,12 +51,16 @@ let
 
   libs = lib.unique (lib.concatMap (r: r.mixLibraries) coverageReports);
 
+  writeArr = name: arr: pkgs.writeText name (lib.concatStringsSep "\n" arr);
+
   mixDirs =
     map
       (l: "${l}/share/hpc/vanilla/mix/${l.identifier.name}-${l.identifier.version}")
       libs;
+  mixDirsFile = writeArr "mixdirs" mixDirs;
 
   srcDirs = map (l: l.srcSubDirPath) libs;
+  srcDirsFile = writeArr "srcdirs" srcDirs;
 
   allCoverageReport = haskellLib.coverageReport {
     name = "all";
@@ -78,25 +82,14 @@ in pkgs.runCommand "project-coverage-report"
   })
   ''
     function markup() {
-      local -n srcDs=$1
-      local -n mixDs=$2
-      local -n includedModules=$3
-      local destDir=$4
-      local tixFile=$5
+      local modulesFile=$1
+      local destDir=$2
+      local tixFile=$3
 
       local hpcMarkupCmd=("hpc" "markup" "--destdir=$destDir")
-      for srcDir in "''${srcDs[@]}"; do
-        hpcMarkupCmd+=("--srcdir=$srcDir")
-      done
-
-      for mixDir in "''${mixDs[@]}"; do
-        hpcMarkupCmd+=("--hpcdir=$mixDir")
-      done
-
-      for module in "''${includedModules[@]}"; do
-        hpcMarkupCmd+=("--include=$module")
-      done
-
+      hpcMarkupCmd+=("--srcdirs-from=${srcDirsFile}")
+      hpcMarkupCmd+=("--hpcdirs-from=${mixDirsFile}")
+      hpcMarkupCmd+=("--includes-from=$modulesFile")
       hpcMarkupCmd+=("$tixFile")
 
       echo "''${hpcMarkupCmd[@]}"
@@ -104,15 +97,15 @@ in pkgs.runCommand "project-coverage-report"
     }
 
     function findModules() {
+      local modulesFile=$1
       local searchDir=$2
-      local pattern=$3
 
       pushd $searchDir
-      mapfile -d $'\0' $1 < <(find ./ -type f \
-        -wholename "$pattern" -not -name "Paths*" \
+      find ./ -type f \
+        -wholename "*.mix" -not -name "Paths*" \
         -exec basename {} \; \
         | sed "s/\.mix$//" \
-        | tr "\n" "\0")
+        >> "$modulesFile"
       popd
     }
 
@@ -144,7 +137,38 @@ in pkgs.runCommand "project-coverage-report"
     # Markup a HTML coverage summary report for the entire project
     cp ${projectIndexHtml} $out/share/hpc/vanilla/html/index.html
 
+<<<<<<< HEAD
     echo "report coverage $out/share/hpc/vanilla/html/index.html" >> $out/nix-support/hydra-build-products
     ( cd $out/share/hpc/vanilla/html ; zip -r $out/share/hpc/vanilla/html.zip . )
     echo "file zip $out/share/hpc/vanilla/html.zip" >> $out/nix-support/hydra-build-products
+||||||| parent of d4ccac17 (patch hpc to allow files to be used for the list of src dirs, hpc dirs, and includes)
+      local markupOutDir="$out/share/hpc/vanilla/html/all"
+      local srcDirs=${toBashArray srcDirs}
+      local mixDirs=${toBashArray mixDirs}
+      local allMixModules=()
+
+      mkdir $markupOutDir
+      findModules allMixModules "$out/share/hpc/vanilla/mix/" "*.mix"
+
+      markup srcDirs mixDirs allMixModules "$markupOutDir" "$tixFile"
+
+      echo "report coverage $markupOutDir/hpc_index.html" >> $out/nix-support/hydra-build-products
+      ( cd $out/share/hpc/vanilla/html ; zip -r $out/share/hpc/vanilla/html.zip . )
+      echo "file zip $out/share/hpc/vanilla/html.zip" >> $out/nix-support/hydra-build-products
+    fi
+=======
+      local markupOutDir="$out/share/hpc/vanilla/html/all"
+
+      mkdir $markupOutDir
+      mixModules="$PWD/mix-modules"
+      touch "$mixModules"
+      findModules "$mixModules" "$out/share/hpc/vanilla/mix/"
+
+      markup "$mixModules" "$markupOutDir" "$tixFile"
+
+      echo "report coverage $markupOutDir/hpc_index.html" >> $out/nix-support/hydra-build-products
+      ( cd $out/share/hpc/vanilla/html ; zip -r $out/share/hpc/vanilla/html.zip . )
+      echo "file zip $out/share/hpc/vanilla/html.zip" >> $out/nix-support/hydra-build-products
+    fi
+>>>>>>> d4ccac17 (patch hpc to allow files to be used for the list of src dirs, hpc dirs, and includes)
   ''
